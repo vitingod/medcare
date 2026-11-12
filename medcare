@@ -1,0 +1,122 @@
+CREATE TABLE pacientes (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(150) NOT NULL,
+    email VARCHAR(150) NOT NULL UNIQUE,
+    cpf CHAR(11) NOT NULL UNIQUE,
+    data_nascimento DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE TABLE especialidades (
+    id SERIAL PRIMARY KEY,
+    nome VARCHAR(100) NOT NULL UNIQUE
+);
+
+CREATE TABLE medicos (
+    id SERIAL PRIMARY KEY,
+    especialidade_id INT NOT NULL REFERENCES especialidades(id),
+    nome VARCHAR(150) NOT NULL,
+    crm VARCHAR(20) NOT NULL UNIQUE
+);
+
+CREATE TABLE tabela_precos (
+    id SERIAL PRIMARY KEY,
+    medico_id INT NOT NULL REFERENCES medicos(id),
+    valor_consulta NUMERIC(10, 2) NOT NULL CHECK (valor_consulta > 0),
+    data_inicio DATE NOT NULL,
+    data_fim DATE
+);
+
+CREATE TABLE consultas (
+    id SERIAL PRIMARY KEY,
+    medico_id INT NOT NULL REFERENCES medicos(id),
+    paciente_id INT NOT NULL REFERENCES pacientes(id),
+    data_hora TIMESTAMP NOT NULL,
+    status VARCHAR(20) DEFAULT 'Agendada' NOT NULL CHECK (status IN ('Agendada', 'Realizada', 'Cancelada'))
+);
+
+CREATE TABLE exames_consulta (
+    id SERIAL PRIMARY KEY,
+    consulta_id INT NOT NULL REFERENCES consultas(id) ON DELETE CASCADE,
+    nome_exame VARCHAR(150) NOT NULL,
+    valor_exame NUMERIC(10, 2) NOT NULL CHECK (valor_exame >= 0)
+);
+
+CREATE TABLE faturamentos (
+    id SERIAL PRIMARY KEY,
+    consulta_id INT NOT NULL UNIQUE REFERENCES consultas(id),
+    valor_consulta_cobrado NUMERIC(10, 2) NOT NULL CHECK (valor_consulta_cobrado >= 0),
+    valor_exames_cobrado NUMERIC(10, 2) DEFAULT 0 NOT NULL CHECK (valor_exames_cobrado >= 0),
+    valor_total NUMERIC(10, 2) GENERATED ALWAYS AS (valor_consulta_cobrado + valor_exames_cobrado) STORED,
+    data_pagamento TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+
+
+INSERT INTO especialidades (nome) VALUES ('Cardiologia'), ('Pediatria'), ('Dermatologia');
+
+INSERT INTO medicos (especialidade_id, nome, crm) VALUES 
+(1, 'Dr. Roberto Alves', 'CRM/SP 123456'),
+(2, 'Dra. Ana Costa', 'CRM/SP 654321'),
+(3, 'Dr. Marcelo Lima', 'CRM/SP 987654');
+
+INSERT INTO tabela_precos (medico_id, valor_consulta, data_inicio) VALUES 
+(1, 350.00, '2026-01-01'),
+(2, 250.00, '2026-01-01'),
+(3, 400.00, '2026-01-01');
+
+INSERT INTO pacientes (nome, email, cpf, data_nascimento) VALUES 
+('Carlos Silva', 'carlos.silva@email.com', '12345678901', '1985-04-12'),
+('Mariana Santos', 'mariana.santos@email.com', '98765432100', '1992-08-25'),
+('Lucas Pereira', 'lucas.pereira@email.com', '45678912345', '2010-11-03');
+
+INSERT INTO consultas (medico_id, paciente_id, data_hora, status) VALUES 
+(1, 1, '2026-03-01 10:00:00', 'Realizada'),
+(2, 3, '2026-03-02 14:30:00', 'Realizada'),
+(3, 1, '2026-03-05 09:00:00', 'Agendada'),
+(1, 2, '2026-03-06 11:00:00', 'Realizada');
+
+INSERT INTO exames_consulta (consulta_id, nome_exame, valor_exame) VALUES 
+(1, 'Eletrocardiograma', 120.00),
+(1, 'Ecocardiograma', 250.00),
+(2, 'Hemograma Completo', 45.00),
+(4, 'Teste Ergométrico', 180.00);
+
+INSERT INTO faturamentos (consulta_id, valor_consulta_cobrado, valor_exames_cobrado) VALUES 
+(1, 350.00, 370.00),
+(2, 250.00, 45.00),
+(4, 350.00, 180.00);
+
+
+SELECT m.nome, m.crm, e.nome AS especialidade, tp.valor_consulta
+FROM medicos m
+JOIN especialidades e ON m.especialidade_id = e.id
+JOIN tabela_precos tp ON m.id = tp.medico_id AND tp.data_fim IS NULL
+ORDER BY tp.valor_consulta DESC;
+
+SELECT c.id AS consulta_id, c.data_hora, m.nome AS medico, e.nome AS especialidade, c.status
+FROM consultas c
+JOIN pacientes p ON c.paciente_id = p.id
+JOIN medicos m ON c.medico_id = m.id
+JOIN especialidades e ON m.especialidade_id = e.id
+WHERE p.nome = 'Carlos Silva';
+
+SELECT c.id AS consulta_id, p.nome AS paciente, m.nome AS medico, COALESCE(f.valor_total, 0) AS valor_total
+FROM consultas c
+JOIN pacientes p ON c.paciente_id = p.id
+JOIN medicos m ON c.medico_id = m.id
+LEFT JOIN faturamentos f ON c.id = f.consulta_id;
+
+SELECT m.nome, m.crm, tp.valor_consulta
+FROM medicos m
+JOIN tabela_precos tp ON m.id = tp.medico_id AND tp.data_fim IS NULL
+WHERE tp.valor_consulta > 300.00;
+
+SELECT e.nome AS especialidade, SUM(f.valor_total) AS total_faturado
+FROM faturamentos f
+JOIN consultas c ON f.consulta_id = c.id
+JOIN medicos m ON c.medico_id = m.id
+JOIN especialidades e ON m.especialidade_id = e.id
+WHERE c.status = 'Realizada'
+GROUP BY e.id, e.nome
+ORDER BY total_faturado DESC;
